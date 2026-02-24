@@ -4,8 +4,7 @@
 
 import sys
 import os
-import lzma
-import re
+import csv
 import glob
 from pathlib import Path
 
@@ -25,114 +24,114 @@ from toolbox.metrics import log_sample
 from toolbox.metrics import finish_samples
 
 
+def process_generic_redfish_csv(filename: str, file_id: str):
+    """
+    Process generic-redfish CSV format.
+
+    CSV Format (6 fields):
+    timestamp,date,endpoint,power_consumed_watts,power_capacity_watts,power_limit_watts
+    1708534821.234567,2024-02-21 15:20:21,192.168.1.10,150.5,200.0,180.0
+    """
+    print(f'power-post-process: processing generic-redfish CSV: {filename}')
+
+    with open(filename, 'r') as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            # Convert timestamp to milliseconds
+            timestamp_ms = int(float(row['timestamp']) * 1000)
+            endpoint = row['endpoint']
+
+            # Log power consumed
+            if row['power_consumed_watts'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'consumed'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_consumed_watts'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log power capacity
+            if row['power_capacity_watts'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'capacity'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_capacity_watts'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log power limit
+            if row['power_limit_watts'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'limit'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_limit_watts'])}
+                log_sample(file_id, desc, names, sample)
+
+
+def process_bf3_sensor_csv(filename: str, file_id: str):
+    """
+    Process bf3-sensor CSV format.
+
+    CSV Format (9 fields):
+    timestamp,date,endpoint,power_envelope,power_envelope_status,soc_power,soc_power_status,power_envelope_deviation,power_envelope_deviation_status
+    1708534821.234567,2024-02-21 15:20:21,192.168.1.10,45.2,OK,42.8,OK,2.4,OK
+    """
+    print(f'power-post-process: processing bf3-sensor CSV: {filename}')
+
+    with open(filename, 'r') as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            # Convert timestamp to milliseconds
+            timestamp_ms = int(float(row['timestamp']) * 1000)
+            endpoint = row['endpoint']
+
+            # Log power envelope
+            if row['power_envelope'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'power_envelope', 'metric': 'envelope'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_envelope'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log SoC power
+            if row['soc_power'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'soc_power', 'metric': 'soc'}
+                sample = {'end': timestamp_ms, 'value': float(row['soc_power'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log power envelope deviation
+            if row['power_envelope_deviation'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'power_envelope_deviation', 'metric': 'envelope-deviation'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_envelope_deviation'])}
+                log_sample(file_id, desc, names, sample)
+
+
+def detect_csv_format(filename: str) -> str:
+    """
+    Detect which CSV format the file uses by examining the header.
+
+    Returns:
+        'generic-redfish' or 'bf3-sensor' or 'unknown'
+    """
+    with open(filename, 'r') as file:
+        header = file.readline().strip()
+
+        if 'power_consumed_watts' in header:
+            return 'generic-redfish'
+        elif 'power_envelope' in header:
+            return 'bf3-sensor'
+        else:
+            return 'unknown'
+
+
 def process_power_file(filename: str, file_id: str):
-    """
-    Process power telemetry from Redfish BMC.
+    """Process a single power CSV file"""
+    csv_format = detect_csv_format(filename)
 
-    Supported formats:
-
-    1. Standard Redfish (generic-redfish plugin):
-    TIMESTAMP: 1770784189.225730476
-    DATE: 2026-02-10 23:29:49
-    ENDPOINT: 192.168.1.10
-    ---
-    PowerControl: System Power Control
-      PowerConsumedWatts: 144.42
-      PowerCapacityWatts: 400
-      PowerLimit: 350
-
-    2. BF3 Sensor API (bf3-sensor plugin):
-    TIMESTAMP: 1770784189.225730476
-    DATE: 2026-02-10 23:29:49
-    ENDPOINT: 192.168.1.10
-    ---
-    Power Sensor: power_envelope
-      Reading: 150.5 W
-      Status: OK
-    """
-    print(f'power-post-process: {filename}')
-
-    with lzma.open(filename, 'rt') as file:
-        current_endpoint = None
-        current_timestamp_ms = 0
-        current_sensor_type = None
-        current_sensor_name = None
-
-        for line in file:
-            line = line.strip()
-
-            # Parse timestamp (epoch with nanosecond precision)
-            if line.startswith('TIMESTAMP:'):
-                timestamp_float = float(line.split(':', 1)[1].strip())
-                current_timestamp_ms = int(timestamp_float * 1000)
-                continue
-
-            # Parse endpoint IP
-            if line.startswith('ENDPOINT:'):
-                current_endpoint = line.split(':', 1)[1].strip()
-                continue
-
-            # Skip date and separator lines
-            if line.startswith('DATE:') or line.startswith('---') or not line:
-                continue
-
-            # Parse power consumption (Watts)
-            match = re.match(r'PowerControl:\s*(.+)', line)
-            if match:
-                current_sensor_type = 'power'
-                current_sensor_name = match.group(1)
-                continue
-
-            if current_sensor_type == 'power':
-                match = re.match(r'PowerConsumedWatts:\s*(\d+\.?\d*)', line)
-                if match:
-                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
-                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': 'consumed'}
-                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
-                    log_sample(file_id, desc, names, sample)
-                    continue
-
-            if current_sensor_type == 'power':
-                match = re.match(r'PowerCapacityWatts:\s*(\d+\.?\d*)', line)
-                if match:
-                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
-                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': 'capacity'}
-                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
-                    log_sample(file_id, desc, names, sample)
-                    continue
-
-            if current_sensor_type == 'power':
-                match = re.match(r'PowerLimit:\s*(\d+\.?\d*)', line)
-                if match:
-                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
-                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': 'limit'}
-                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
-                    log_sample(file_id, desc, names, sample)
-                    current_sensor_type = None
-                    continue
-
-            # Parse BF3 sensor format: "Power Sensor: <name>"
-            match = re.match(r'Power Sensor:\s*(.+)', line)
-            if match:
-                current_sensor_type = 'bf3-power'
-                current_sensor_name = match.group(1)
-                continue
-
-            if current_sensor_type == 'bf3-power':
-                match = re.match(r'Reading:\s*(\d+\.?\d*)', line)
-                if match:
-                    # Derive metric name from sensor name
-                    # power_envelope → envelope
-                    # soc_power → soc
-                    # power_envelope_deviation → envelope-deviation
-                    metric_name = current_sensor_name.replace('power_', '').replace('_', '-')
-
-                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
-                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': metric_name}
-                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
-                    log_sample(file_id, desc, names, sample)
-                    current_sensor_type = None
-                    continue
+    if csv_format == 'generic-redfish':
+        process_generic_redfish_csv(filename, file_id)
+    elif csv_format == 'bf3-sensor':
+        process_bf3_sensor_csv(filename, file_id)
+    else:
+        print(f"WARNING: Unknown CSV format in {filename}, skipping")
 
 
 def process_all_power_files():
@@ -140,10 +139,13 @@ def process_all_power_files():
     print("power-post-process: processing all power files")
     file_id = 'power-telemetry'
 
-    power_files = glob.glob('power-*.txt.xz')
+    # Look for CSV files (uncompressed)
+    power_files = glob.glob('power-*.csv')
     if not power_files:
-        print("WARNING: No power files found (power-*.txt.xz)")
+        print("WARNING: No power files found (power-*.csv)")
         return
+
+    print(f"Found {len(power_files)} power file(s)")
 
     # Process all power files sequentially
     for power_file in power_files:
@@ -157,11 +159,11 @@ def process_all_power_files():
 def main():
     print("power-post-process")
 
-    # Find all power files
-    power_files = glob.glob('power-*.txt.xz')
+    # Find all power files (uncompressed CSV)
+    power_files = glob.glob('power-*.csv')
 
     if not power_files:
-        print("WARNING: No power files found (power-*.txt.xz)")
+        print("WARNING: No power files found (power-*.csv)")
         return 0
 
     # Process all power files

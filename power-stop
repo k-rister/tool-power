@@ -48,13 +48,3 @@ else
 fi
 # Clean up PID files
 rm -f $pidfile $worker_pidfile
-
-if [ -f /usr/bin/xz ]; then
-    echo "Compressing any power data files"
-    if ls power-*.txt 1> /dev/null 2>&1; then
-        xz -T 0 power-*.txt
-    fi
-    if ls thermal-*.txt 1> /dev/null 2>&1; then
-        xz -T 0 thermal-*.txt
-    fi
-fi

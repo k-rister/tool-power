@@ -14,6 +14,14 @@ The test suite validates different layers of the tool:
 - test-03 validates the **integration layer** (parameter parsing, background process management, compression)
 - Both are needed: test-02 ensures collection works, test-03 ensures rickshaw can deploy it
 
+**Output Format:**
+All tests validate **CSV format** output:
+- **generic-redfish plugin**: 6-field CSV (timestamp, date, endpoint, power_consumed_watts, power_capacity_watts, power_limit_watts)
+- **bf3-sensor plugin**: 9-field CSV (timestamp, date, endpoint, power_envelope, power_envelope_status, soc_power, soc_power_status, power_envelope_deviation, power_envelope_deviation_status)
+- Each file starts with a header row
+- Each subsequent row contains one sample
+- Files remain uncompressed as `.csv` for easy inspection
+
 ## Test Files
 
 Tests are numbered to indicate recommended execution order:
@@ -81,9 +89,12 @@ Tests the core power-collect script with two mock BMC endpoints.
    - Lets it run for 15 seconds (should collect ~7-8 samples)
 
 3. **Validation:**
-   - Checks that output files were created (`power-127.0.0.1:8443.txt`, etc.)
-   - Counts how many samples were collected (`TIMESTAMP:` lines)
-   - Displays first and last samples to verify data format
+   - Checks that CSV output files were created (`power-127.0.0.1:8443.csv`, etc.)
+   - **CSV format validation:**
+     - Verifies header row exists with correct field names
+     - Counts data rows (excluding header)
+     - Validates all rows have correct number of fields (6 for generic-redfish, 9 for bf3-sensor)
+     - Shows sample data (first/last 3 rows)
    - Lists output files with sizes
 
 4. **Cleanup:**
@@ -136,8 +147,13 @@ Tests the power-start wrapper script and parameter parsing.
    - Checks power-start exit code (success/failure)
    - Displays contents of `power-start-stderrout.txt` (shows power-collect output)
    - Lets it collect for 10 seconds
-   - Calls `power-stop` to stop collection and compress files
-   - Shows compressed files (`.txt.xz`)
+   - Calls `power-stop` to stop collection
+   - **CSV format validation:**
+     - Verifies header row exists with correct field names
+     - Counts data rows (excluding header)
+     - Validates all rows have correct number of fields
+     - Shows sample data (first/last 3 rows)
+   - Shows output files (`.csv`)
 
 4. **Cleanup:**
    - Kills mock servers
@@ -162,7 +178,7 @@ cd unit-test
 | **Tests** | `power-collect` (core script) | `power-start` → `power-stop` (wrappers) |
 | **Arguments** | Positional: `power-collect INTERVAL USER PASS IP1 IP2` | Long options: `--interval N --username U --password P --endpoints IP1,IP2` |
 | **Process management** | Test script manages process directly | power-start/power-stop manage background process |
-| **Output** | Raw .txt files | Compressed .txt.xz files (via power-stop) |
+| **Output** | Raw .csv files | Raw .csv files |
 | **What's validated** | Collection functionality works | Parameter parsing, start/stop lifecycle, compression |
 | **Why needed** | Ensures core engine works | Ensures rickshaw integration works |
 

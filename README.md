@@ -101,13 +101,34 @@ power-post-process | (TODO) Post-processing script for generating metrics and pr
 
 ## Output
 
-Current output format (text-based):
-- `power-<ip>.txt` - Power metrics per endpoint
-- `thermal-<ip>.txt` - Thermal metrics per endpoint
+### CSV Format
 
-Compressed on stop:
-- `power-<ip>.txt.xz`
-- `thermal-<ip>.txt.xz`
+Power metrics are written in CSV format for efficient storage and easy processing:
+
+**File naming:**
+- `power-<ip>.csv` - Power metrics per endpoint
+
+**Generic Redfish CSV format** (6 fields):
+```csv
+timestamp,date,endpoint,power_consumed_watts,power_capacity_watts,power_limit_watts
+1708534821.234567,2024-02-21 15:20:21,192.168.1.10,150.5,200.0,180.0
+```
+
+**BF-3 Sensor CSV format** (9 fields):
+```csv
+timestamp,date,endpoint,power_envelope,power_envelope_status,soc_power,soc_power_status,power_envelope_deviation,power_envelope_deviation_status
+1708534821.234567,2024-02-21 15:20:21,192.168.1.10,45.2,OK,42.8,OK,2.4,OK
+```
+
+**Field descriptions:**
+- `timestamp` - Unix timestamp with nanosecond precision
+- `date` - Human-readable date/time (YYYY-MM-DD HH:MM:SS)
+- `endpoint` - IP address of the BMC
+- Power values vary by plugin (see Plugin Architecture section)
+- Status values: OK, Warning, Critical, or N/A
+
+**Note on compression:**
+CSV files are left uncompressed for easy inspection and processing. The CSV format itself already provides ~70-75% size reduction compared to the previous verbose text format.
 
 ## Plugin Architecture
 
@@ -121,12 +142,23 @@ The tool supports **multiple Redfish implementations** via a plugin system:
 - **API**: `/redfish/v1/Chassis/Card1/Sensors/`
 - **Sensors**: `power_envelope`, `soc_power`, `power_envelope_deviation`
 - **Status**: ✅ Implemented
+- **CSV Fields**:
+  - `power_envelope` - Total power envelope (watts)
+  - `power_envelope_status` - Health status (OK/Warning/Critical)
+  - `soc_power` - SoC power consumption (watts)
+  - `soc_power_status` - Health status
+  - `power_envelope_deviation` - Deviation from power limit (watts)
+  - `power_envelope_deviation_status` - Health status
 
 #### 2. **generic-redfish** (Standard Redfish)
 - **File**: `plugins/generic-redfish.sh`
 - **Target**: Generic Redfish-compliant devices
-- **API**: `/redfish/v1/Chassis/{ChassisId}/Power`, `/redfish/v1/Chassis/{ChassisId}/Thermal`
+- **API**: `/redfish/v1/Chassis/{ChassisId}/Power`
 - **Status**: ✅ Implemented
+- **CSV Fields**:
+  - `power_consumed_watts` - Current power consumption (watts)
+  - `power_capacity_watts` - Maximum power capacity (watts)
+  - `power_limit_watts` - Configured power limit (watts)
 
 ### Plugin Interface
 

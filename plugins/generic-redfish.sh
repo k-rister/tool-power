@@ -57,7 +57,12 @@ plugin_collect_endpoint() {
     local password=$4
     local interval=$5
 
-    local power_file="power-${ip}.txt"
+    local power_file="power-${ip}.csv"
+
+    # Write CSV header on first run
+    if [ ! -f "$power_file" ]; then
+        echo "timestamp,date,endpoint,power_consumed_watts,power_capacity_watts,power_limit_watts" > "$power_file"
+    fi
 
     while true; do
         timestamp=$(date +%s.%N)
@@ -66,20 +71,13 @@ plugin_collect_endpoint() {
         # Collect Power data
         power_data=$(curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/Chassis/$chassis_id/Power" 2>/dev/null)
         if [ $? -eq 0 ] && [ -n "$power_data" ]; then
-            echo "" >> "$power_file"
-            echo "TIMESTAMP: $timestamp" >> "$power_file"
-            echo "DATE: $date_str" >> "$power_file"
-            echo "ENDPOINT: $ip" >> "$power_file"
-            echo "---" >> "$power_file"
-
             # Parse power consumption values
-            echo "$power_data" | jq -r '
-                .PowerControl[]? |
-                "PowerControl: \(.Name // .MemberId // "Unknown")
-  PowerConsumedWatts: \(.PowerConsumedWatts // "N/A")
-  PowerCapacityWatts: \(.PowerCapacityWatts // "N/A")
-  PowerLimit: \(.PowerLimit.LimitInWatts // "N/A")"
-            ' >> "$power_file" 2>/dev/null
+            power_consumed=$(echo "$power_data" | jq -r '.PowerControl[0].PowerConsumedWatts // "N/A"' 2>/dev/null)
+            power_capacity=$(echo "$power_data" | jq -r '.PowerControl[0].PowerCapacityWatts // "N/A"' 2>/dev/null)
+            power_limit=$(echo "$power_data" | jq -r '.PowerControl[0].PowerLimit.LimitInWatts // "N/A"' 2>/dev/null)
+
+            # Write CSV row
+            echo "$timestamp,$date_str,$ip,$power_consumed,$power_capacity,$power_limit" >> "$power_file"
         fi
 
         sleep "$interval"

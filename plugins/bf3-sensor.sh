@@ -51,7 +51,12 @@ plugin_collect_endpoint() {
     local password=$4
     local interval=$5
 
-    local power_file="power-${ip}.txt"
+    local power_file="power-${ip}.csv"
+
+    # Write CSV header on first run
+    if [ ! -f "$power_file" ]; then
+        echo "timestamp,date,endpoint,power_envelope,power_envelope_status,soc_power,soc_power_status,power_envelope_deviation,power_envelope_deviation_status" > "$power_file"
+    fi
 
     # Define power sensors to collect
     local power_sensors=("power_envelope" "soc_power" "power_envelope_deviation")
@@ -60,12 +65,9 @@ plugin_collect_endpoint() {
         timestamp=$(date +%s.%N)
         date_str=$(date '+%Y-%m-%d %H:%M:%S')
 
-        # Collect Power sensor data
-        echo "" >> "$power_file"
-        echo "TIMESTAMP: $timestamp" >> "$power_file"
-        echo "DATE: $date_str" >> "$power_file"
-        echo "ENDPOINT: $ip" >> "$power_file"
-        echo "---" >> "$power_file"
+        # Initialize CSV fields
+        declare -A readings
+        declare -A statuses
 
         # Query power sensors
         for sensor in "${power_sensors[@]}"; do
@@ -73,22 +75,25 @@ plugin_collect_endpoint() {
                 "https://$ip/redfish/v1/Chassis/$chassis_id/Sensors/$sensor" 2>/dev/null)
 
             if [ $? -eq 0 ] && [ -n "$sensor_data" ]; then
-                # Parse sensor data
-                sensor_name=$(echo "$sensor_data" | jq -r '.Name // .Id' 2>/dev/null)
-                # Replace spaces with underscores for better parsing
-                sensor_name="${sensor_name// /_}"
                 reading=$(echo "$sensor_data" | jq -r '.Reading' 2>/dev/null)
-                units=$(echo "$sensor_data" | jq -r '.ReadingUnits // ""' 2>/dev/null)
                 status=$(echo "$sensor_data" | jq -r '.Status.Health // "Unknown"' 2>/dev/null)
 
-                # Only output if we have a valid reading (not null)
+                # Store values (use N/A if null)
                 if [ "$reading" != "null" ] && [ -n "$reading" ]; then
-                    echo "Power Sensor: $sensor_name" >> "$power_file"
-                    echo "  Reading: $reading $units" >> "$power_file"
-                    echo "  Status: $status" >> "$power_file"
+                    readings[$sensor]=$reading
+                    statuses[$sensor]=$status
+                else
+                    readings[$sensor]="N/A"
+                    statuses[$sensor]="N/A"
                 fi
+            else
+                readings[$sensor]="N/A"
+                statuses[$sensor]="N/A"
             fi
         done
+
+        # Write CSV row
+        echo "$timestamp,$date_str,$ip,${readings[power_envelope]},${statuses[power_envelope]},${readings[soc_power]},${statuses[soc_power]},${readings[power_envelope_deviation]},${statuses[power_envelope_deviation]}" >> "$power_file"
 
         sleep "$interval"
     done

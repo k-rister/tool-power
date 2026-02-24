@@ -17,7 +17,7 @@ mkdir -p generated
 cd generated
 
 # Clean up previous test files
-rm -f power-start-stderrout.txt power-collect-pid.txt power-*.txt thermal-*.txt
+rm -f power-start-stderrout.txt power-collect-pid.txt power-*.csv thermal-*.csv
 
 # Create symlinks to power-collect and plugins (from generated/ directory)
 ln -sf ../../power-collect ./power-collect
@@ -80,8 +80,92 @@ if [ $? -eq 0 ]; then
     echo "----------------------------------------"
     echo ""
 
+    echo "========================================="
+    echo "Validating CSV Output"
+    echo "========================================="
+    echo ""
+
+    # Validate CSV files
+    validation_passed=true
+
+    for file in power-127.0.0.1*.csv; do
+        if [ -f "$file" ]; then
+            echo "--- Validating $file ---"
+
+            # Check if file has content
+            if [ ! -s "$file" ]; then
+                echo "ERROR: File is empty"
+                validation_passed=false
+                continue
+            fi
+
+            # Read header
+            header=$(head -1 "$file")
+            echo "Header: $header"
+
+            # Validate header format
+            if [[ "$header" != timestamp,date,endpoint,* ]]; then
+                echo "ERROR: Invalid CSV header format"
+                validation_passed=false
+                continue
+            fi
+
+            # Count total lines (header + data rows)
+            total_lines=$(wc -l < "$file")
+            data_rows=$((total_lines - 1))
+
+            if [ $data_rows -lt 1 ]; then
+                echo "ERROR: No data rows found"
+                validation_passed=false
+                continue
+            fi
+
+            echo "Total samples collected: $data_rows"
+
+            # Count fields in header
+            header_fields=$(echo "$header" | tr ',' '\n' | wc -l)
+            echo "CSV fields per row: $header_fields"
+
+            # Validate all data rows have correct number of fields
+            invalid_rows=0
+            line_num=2  # Start after header
+            while IFS= read -r line; do
+                field_count=$(echo "$line" | tr ',' '\n' | wc -l)
+                if [ $field_count -ne $header_fields ]; then
+                    echo "WARNING: Line $line_num has $field_count fields (expected $header_fields)"
+                    invalid_rows=$((invalid_rows + 1))
+                fi
+                line_num=$((line_num + 1))
+            done < <(tail -n +2 "$file")
+
+            if [ $invalid_rows -gt 0 ]; then
+                echo "ERROR: Found $invalid_rows rows with incorrect field count"
+                validation_passed=false
+            else
+                echo "✓ All data rows have correct field count"
+            fi
+
+            echo ""
+            echo "First 3 data rows:"
+            head -4 "$file" | tail -3
+            echo ""
+            echo "Last 3 data rows:"
+            tail -3 "$file"
+            echo ""
+            echo "========================================="
+            echo ""
+        fi
+    done
+
+    if [ "$validation_passed" = true ]; then
+        echo "✓ CSV validation passed!"
+    else
+        echo "✗ CSV validation failed"
+    fi
+
+    echo ""
     echo "Generated files:"
-    ls -lh power-*.txt* thermal-*.txt* 2>/dev/null
+    ls -lh power-*.csv 2>/dev/null
 else
     echo "ERROR: power-start failed!"
 fi
