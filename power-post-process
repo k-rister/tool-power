@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+# -*- mode: python; indent-tabs-mode: nil; python-indent-level: 4 -*-
+# vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
+
+import sys
+import os
+import lzma
+import re
+import glob
+from pathlib import Path
+
+TOOLBOX_HOME = os.environ.get('TOOLBOX_HOME')
+if TOOLBOX_HOME is None:
+    print("This script requires libraries that are provided by the toolbox project.")
+    print("Toolbox can be acquired from https://github.com/perftool-incubator/toolbox and")
+    print("then use 'export TOOLBOX_HOME=/path/to/toolbox' so that it can be located.")
+    exit(1)
+else:
+    p = Path(TOOLBOX_HOME) / 'python'
+    if not p.exists() or not p.is_dir():
+        print("ERROR: <TOOLBOX_HOME>/python ('%s') does not exist!" % (p))
+        exit(2)
+    sys.path.append(str(p))
+from toolbox.metrics import log_sample
+from toolbox.metrics import finish_samples
+
+
+def process_power_file(filename: str, file_id: str):
+    """
+    Process power telemetry from Redfish BMC.
+
+    Supported formats:
+
+    1. Standard Redfish (generic-redfish plugin):
+    TIMESTAMP: 1770784189.225730476
+    DATE: 2026-02-10 23:29:49
+    ENDPOINT: 192.168.1.10
+    ---
+    PowerControl: System Power Control
+      PowerConsumedWatts: 144.42
+      PowerCapacityWatts: 400
+      PowerLimit: 350
+
+    2. BF3 Sensor API (bf3-sensor plugin):
+    TIMESTAMP: 1770784189.225730476
+    DATE: 2026-02-10 23:29:49
+    ENDPOINT: 192.168.1.10
+    ---
+    Power Sensor: power_envelope
+      Reading: 150.5 W
+      Status: OK
+    """
+    print(f'power-post-process: {filename}')
+
+    with lzma.open(filename, 'rt') as file:
+        current_endpoint = None
+        current_timestamp_ms = 0
+        current_sensor_type = None
+        current_sensor_name = None
+
+        for line in file:
+            line = line.strip()
+
+            # Parse timestamp (epoch with nanosecond precision)
+            if line.startswith('TIMESTAMP:'):
+                timestamp_float = float(line.split(':', 1)[1].strip())
+                current_timestamp_ms = int(timestamp_float * 1000)
+                continue
+
+            # Parse endpoint IP
+            if line.startswith('ENDPOINT:'):
+                current_endpoint = line.split(':', 1)[1].strip()
+                continue
+
+            # Skip date and separator lines
+            if line.startswith('DATE:') or line.startswith('---') or not line:
+                continue
+
+            # Parse power consumption (Watts)
+            match = re.match(r'PowerControl:\s*(.+)', line)
+            if match:
+                current_sensor_type = 'power'
+                current_sensor_name = match.group(1)
+                continue
+
+            if current_sensor_type == 'power':
+                match = re.match(r'PowerConsumedWatts:\s*(\d+\.?\d*)', line)
+                if match:
+                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': 'consumed'}
+                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
+                    log_sample(file_id, desc, names, sample)
+                    continue
+
+            if current_sensor_type == 'power':
+                match = re.match(r'PowerCapacityWatts:\s*(\d+\.?\d*)', line)
+                if match:
+                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': 'capacity'}
+                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
+                    log_sample(file_id, desc, names, sample)
+                    continue
+
+            if current_sensor_type == 'power':
+                match = re.match(r'PowerLimit:\s*(\d+\.?\d*)', line)
+                if match:
+                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': 'limit'}
+                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
+                    log_sample(file_id, desc, names, sample)
+                    current_sensor_type = None
+                    continue
+
+            # Parse BF3 sensor format: "Power Sensor: <name>"
+            match = re.match(r'Power Sensor:\s*(.+)', line)
+            if match:
+                current_sensor_type = 'bf3-power'
+                current_sensor_name = match.group(1)
+                continue
+
+            if current_sensor_type == 'bf3-power':
+                match = re.match(r'Reading:\s*(\d+\.?\d*)', line)
+                if match:
+                    # Derive metric name from sensor name
+                    # power_envelope → envelope
+                    # soc_power → soc
+                    # power_envelope_deviation → envelope-deviation
+                    metric_name = current_sensor_name.replace('power_', '').replace('_', '-')
+
+                    desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                    names = {'endpoint': current_endpoint, 'sensor': current_sensor_name, 'metric': metric_name}
+                    sample = {'end': current_timestamp_ms, 'value': float(match.group(1))}
+                    log_sample(file_id, desc, names, sample)
+                    current_sensor_type = None
+                    continue
+
+
+def process_all_power_files():
+    """Process all power files and write to single metric file"""
+    print("power-post-process: processing all power files")
+    file_id = 'power-telemetry'
+
+    power_files = glob.glob('power-*.txt.xz')
+    if not power_files:
+        print("WARNING: No power files found (power-*.txt.xz)")
+        return
+
+    # Process all power files sequentially
+    for power_file in power_files:
+        process_power_file(power_file, file_id)
+
+    # Write all accumulated samples to output file once
+    finish_samples()
+    print("power-post-process: all power files complete")
+
+
+def main():
+    print("power-post-process")
+
+    # Find all power files
+    power_files = glob.glob('power-*.txt.xz')
+
+    if not power_files:
+        print("WARNING: No power files found (power-*.txt.xz)")
+        return 0
+
+    # Process all power files
+    process_all_power_files()
+
+    print("power-post-process complete")
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())
