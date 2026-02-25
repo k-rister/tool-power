@@ -487,5 +487,5 @@ See `unit-test/README.md` for detailed documentation.
 ## References
 
 - [DMTF Redfish Specification](https://www.dmtf.org/standards/redfish)
-- [NVIDIA BlueField BMC Documentation](https://docs.nvidia.com/networking/category/bluefieldbmc)
+- [NVIDIA BlueField BMC v25.10 - Sensor Data](https://docs.nvidia.com/networking/display/bluefieldbmcv2510/bmc-sensor-data)
 - [Rickshaw Tool Development](https://github.com/perftool-incubator/rickshaw)
