@@ -184,6 +184,51 @@ cd unit-test
 
 ---
 
+### test-04-netrc.sh - .netrc Credential Testing
+
+Tests secure credential storage using .netrc file instead of command-line parameters.
+
+**What it does:**
+
+1. **Setup Phase:**
+   - Generates SSL certificate
+   - Starts two mock Redfish servers (same as test-02)
+   - Creates a temporary `.netrc` file with credentials
+
+2. **Test Execution:**
+   - Calls `power-collect` with **empty username and password** parameters
+   - power-collect should automatically use credentials from `.netrc` file
+   - Collects data for 10 seconds
+
+3. **Validation:**
+   - Verifies "Credential source: .netrc file" message appears
+   - Validates CSV output (same as other tests)
+   - Confirms no credentials visible in process command line
+
+4. **Cleanup:**
+   - Removes temporary `.netrc` file
+   - Kills mock servers
+
+**What it validates:**
+- `.netrc` credential loading works correctly
+- Empty credentials trigger `.netrc` usage
+- No passwords exposed in process list
+- Backward compatibility (other tests still use explicit credentials)
+
+**Usage:**
+```bash
+cd unit-test
+./test-04-netrc.sh
+```
+
+**Key Security Benefit:**
+Demonstrates how to avoid password exposure in process lists and logs.
+
+**Important Note:**
+This test runs power-collect directly on the host (not in a container), so it doesn't require host-mounts. For production deployments where power-collect runs in a container, you must also configure host-mounts to mount the .netrc file into the container. See the main README.md for container deployment instructions.
+
+---
+
 ### local_test - Manual Hardware Testing Tool
 
 A standalone diagnostic tool for testing connectivity and data collection from **real BMC hardware** (not mock servers).

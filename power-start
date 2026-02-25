@@ -67,14 +67,21 @@ while true; do
 done
 
 # Validate required parameters
-if [ -z "$username" ]; then
-    echo "ERROR: --username is required"
+# Credentials are optional if using .netrc
+# If both username and password are empty, .netrc will be used
+# If only one is provided, that's an error
+if [ -z "$username" ] && [ -n "$password" ]; then
+    echo "ERROR: --password provided but --username is empty"
     exit 1
 fi
 
-if [ -z "$password" ]; then
-    echo "ERROR: --password is required"
+if [ -n "$username" ] && [ -z "$password" ]; then
+    echo "ERROR: --username provided but --password is empty"
     exit 1
+fi
+
+if [ -z "$username" ] && [ -z "$password" ]; then
+    echo "Using .netrc for authentication"
 fi
 
 if [ -z "$endpoints" ]; then

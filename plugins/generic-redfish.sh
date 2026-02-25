@@ -10,21 +10,21 @@ plugin_name="Generic Redfish"
 plugin_description="Standard Redfish Power endpoints"
 
 # Validate endpoint and return chassis ID
-# Args: $1=ip, $2=username, $3=password
+# Args: $1=ip
 # Returns: chassis_id via stdout, exit code 0 on success
+# Uses get_curl_auth_flags() for authentication (either .netrc or explicit credentials)
 plugin_validate_endpoint() {
     local ip=$1
-    local username=$2
-    local password=$3
+    local auth_flags=$(get_curl_auth_flags)
 
     # Test basic connectivity
-    if ! curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/" > /dev/null 2>&1; then
+    if ! curl --connect-timeout 5 --max-time 10 -k -s $auth_flags "https://$ip/redfish/v1/" > /dev/null 2>&1; then
         echo "ERROR($LINENO): Cannot connect to Redfish endpoint at $ip" >&2
         return 1
     fi
 
     # Get chassis list (Redfish API uses "Chassis" terminology even for NICs/DPUs)
-    chassis_response=$(curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/Chassis" 2>&1)
+    chassis_response=$(curl --connect-timeout 5 --max-time 10 -k -s $auth_flags "https://$ip/redfish/v1/Chassis" 2>&1)
     if [ $? -ne 0 ]; then
         echo "ERROR($LINENO): Failed to query device from $ip" >&2
         return 1
@@ -38,7 +38,7 @@ plugin_validate_endpoint() {
     fi
 
     # Validate Power endpoint
-    if ! curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/Chassis/$chassis_id/Power" > /dev/null 2>&1; then
+    if ! curl --connect-timeout 5 --max-time 10 -k -s $auth_flags "https://$ip/redfish/v1/Chassis/$chassis_id/Power" > /dev/null 2>&1; then
         echo "ERROR($LINENO): Power endpoint not accessible for $ip" >&2
         return 1
     fi
@@ -49,13 +49,13 @@ plugin_validate_endpoint() {
 }
 
 # Collect telemetry for a single endpoint
-# Args: $1=ip, $2=chassis_id, $3=username, $4=password, $5=interval
+# Args: $1=ip, $2=chassis_id, $3=interval
+# Uses get_curl_auth_flags() for authentication (either .netrc or explicit credentials)
 plugin_collect_endpoint() {
     local ip=$1
     local chassis_id=$2
-    local username=$3
-    local password=$4
-    local interval=$5
+    local interval=$3
+    local auth_flags=$(get_curl_auth_flags)
 
     local power_file="power-${ip}.csv"
 
@@ -69,7 +69,7 @@ plugin_collect_endpoint() {
         date_str=$(date '+%Y-%m-%d %H:%M:%S')
 
         # Collect Power data
-        power_data=$(curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/Chassis/$chassis_id/Power" 2>/dev/null)
+        power_data=$(curl --connect-timeout 5 --max-time 10 -k -s $auth_flags "https://$ip/redfish/v1/Chassis/$chassis_id/Power" 2>/dev/null)
         if [ $? -eq 0 ] && [ -n "$power_data" ]; then
             # Parse power consumption values
             power_consumed=$(echo "$power_data" | jq -r '.PowerControl[0].PowerConsumedWatts // "N/A"' 2>/dev/null)

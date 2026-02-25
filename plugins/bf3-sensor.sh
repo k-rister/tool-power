@@ -10,21 +10,21 @@ plugin_name="BF3 Sensor API"
 plugin_description="NVIDIA BlueField-3 sensor-based power API"
 
 # Validate endpoint and return chassis ID
-# Args: $1=ip, $2=username, $3=password
+# Args: $1=ip
 # Returns: chassis_id via stdout, exit code 0 on success
+# Uses get_curl_auth_flags() for authentication (either .netrc or explicit credentials)
 plugin_validate_endpoint() {
     local ip=$1
-    local username=$2
-    local password=$3
+    local auth_flags=$(get_curl_auth_flags)
 
     # Test basic connectivity
-    if ! curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/" > /dev/null 2>&1; then
+    if ! curl --connect-timeout 5 --max-time 10 -k -s $auth_flags "https://$ip/redfish/v1/" > /dev/null 2>&1; then
         echo "ERROR($LINENO): Cannot connect to Redfish endpoint at $ip" >&2
         return 1
     fi
 
     # Test BF-3 sensor endpoint (Card1 is the standard BF-3 chassis name)
-    sensor_response=$(curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" "https://$ip/redfish/v1/Chassis/Card1/Sensors" 2>&1)
+    sensor_response=$(curl --connect-timeout 5 --max-time 10 -k -s $auth_flags "https://$ip/redfish/v1/Chassis/Card1/Sensors" 2>&1)
     if [ $? -ne 0 ]; then
         echo "ERROR($LINENO): Cannot query BF-3 sensor endpoint at $ip" >&2
         return 1
@@ -43,13 +43,13 @@ plugin_validate_endpoint() {
 }
 
 # Collect telemetry for a single endpoint
-# Args: $1=ip, $2=chassis_id, $3=username, $4=password, $5=interval
+# Args: $1=ip, $2=chassis_id, $3=interval
+# Uses get_curl_auth_flags() for authentication (either .netrc or explicit credentials)
 plugin_collect_endpoint() {
     local ip=$1
     local chassis_id=$2
-    local username=$3
-    local password=$4
-    local interval=$5
+    local interval=$3
+    local auth_flags=$(get_curl_auth_flags)
 
     local power_file="power-${ip}.csv"
 
@@ -71,7 +71,7 @@ plugin_collect_endpoint() {
 
         # Query power sensors
         for sensor in "${power_sensors[@]}"; do
-            sensor_data=$(curl --connect-timeout 5 --max-time 10 -k -s -u "$username:$password" \
+            sensor_data=$(curl --connect-timeout 5 --max-time 10 -k -s $auth_flags \
                 "https://$ip/redfish/v1/Chassis/$chassis_id/Sensors/$sensor" 2>/dev/null)
 
             if [ $? -eq 0 ] && [ -n "$sensor_data" ]; then

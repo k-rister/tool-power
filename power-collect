@@ -32,14 +32,26 @@ if [[ ! "$interval" =~ $re ]]; then
     exit 1
 fi
 
-if [ -z "$username" ]; then
-    echo "ERROR($LINENO): Username required, exiting"
+# Credentials can be empty if using .netrc
+# If both are empty, curl will use .netrc
+# If both are provided, curl will use explicit credentials
+if [ -z "$username" ] && [ -n "$password" ]; then
+    echo "ERROR($LINENO): Password provided but username is empty, exiting"
     exit 1
 fi
 
-if [ -z "$password" ]; then
-    echo "ERROR($LINENO): Password required, exiting"
+if [ -n "$username" ] && [ -z "$password" ]; then
+    echo "ERROR($LINENO): Username provided but password is empty, exiting"
     exit 1
+fi
+
+# Determine credential source
+if [ -z "$username" ] && [ -z "$password" ]; then
+    echo "Credential source: .netrc file"
+    use_netrc=true
+else
+    echo "Credential source: command-line parameters"
+    use_netrc=false
 fi
 
 if [ ${#ips[@]} -eq 0 ]; then
@@ -93,6 +105,22 @@ fi
 
 echo "Plugin loaded: $plugin_name - $plugin_description"
 
+# Helper function to build curl auth flags
+# Returns either "--netrc" (use .netrc) or "-u user:pass" (explicit credentials)
+get_curl_auth_flags() {
+    if [ "$use_netrc" = true ]; then
+        echo "--netrc"
+    else
+        echo "-u $username:$password"
+    fi
+}
+
+# Export for use in background jobs
+export use_netrc
+export username
+export password
+export -f get_curl_auth_flags
+
 # Redfish endpoint validation (fail-fast)
 declare -A device_chassis_map
 
@@ -103,7 +131,7 @@ for ip in "${ips[@]}"; do
     echo "Validating $ip..."
 
     # Use plugin to validate and get chassis ID
-    chassis_id=$(plugin_validate_endpoint "$ip" "$username" "$password")
+    chassis_id=$(plugin_validate_endpoint "$ip")
     if [ $? -ne 0 ]; then
         echo "ERROR($LINENO): Endpoint validation failed for $ip"
         exit 1
@@ -128,7 +156,7 @@ echo "Starting collection threads..."
 for ip in "${ips[@]}"; do
     chassis_id="${device_chassis_map[$ip]}"
     echo "Starting collector for $ip (device: $chassis_id)"
-    plugin_collect_endpoint "$ip" "$chassis_id" "$username" "$password" "$interval" &
+    plugin_collect_endpoint "$ip" "$chassis_id" "$interval" &
     pids+=($!)
 done
 

@@ -25,7 +25,153 @@ Collects power consumption and thermal sensor data from BF-3 BMC endpoints via R
 
 Each BMC endpoint must be assigned to exactly ONE tool-power instance. Multiple instances collecting the same endpoints will produce duplicate/aggregated metrics.
 
-### Rickshaw Configuration
+### Credential Management
+
+**Recommended: Use `.netrc` for secure credential storage**
+
+Credentials can be provided in two ways:
+
+1. **`.netrc` file (recommended)** - More secure, credentials not visible in process list
+2. **Command-line parameters** - Backward compatible but less secure
+
+#### Using .netrc (Recommended)
+
+**Step 1: Create `.netrc` file on the host**
+
+Create a `.netrc` file in the home directory of the user running tool-power (typically `/root/.netrc`):
+
+```bash
+# ~/.netrc (chmod 600)
+# Note: machine entries use only IP/hostname, no port numbers
+machine 192.168.1.10
+login admin
+password secret123
+
+machine 192.168.1.11
+login admin
+password secret456
+```
+
+Set proper permissions:
+```bash
+chmod 600 ~/.netrc
+```
+
+**Step 2: Create `hostmount.json` file**
+
+Since tool-power runs in a container, you need to mount the `.netrc` file into the container. Create a `hostmount.json` file:
+
+```json
+[
+  {
+    "src": "/root/.netrc",
+    "dest": "/root/.netrc"
+  }
+]
+```
+
+**Step 3: Configure rickshaw with host-mounts**
+
+Full rickshaw configuration with `.netrc` and host-mounts:
+
+```json
+{
+  "endpoints": [
+    {
+      "type": "remotehosts",
+      "remotes": [{
+        "engines": [{ "role": "profiler" }],
+        "config": {
+          "host": "your-profiler-host.example.com",
+          "settings": {
+            "tool-opt-in-tags": ["power-monitoring"],
+            "host-mounts": [
+              {
+                "src": "/root/.netrc",
+                "dest": "/root/.netrc"
+              }
+            ]
+          }
+        }
+      }]
+    }
+  ],
+  "tool-params": [
+    {
+      "tool": "power",
+      "deployment": "opt-in",
+      "opt-tag": "power-monitoring",
+      "params": [
+        {
+          "arg": "interval",
+          "val": "2"
+        },
+        {
+          "arg": "endpoints",
+          "val": "192.168.1.10,192.168.1.11"
+        },
+        {
+          "arg": "plugin",
+          "val": "bf3-sensor"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Note:** `username` and `password` parameters are **omitted** - when they're not provided, tool-power automatically uses `.netrc`.
+
+**Using with Regulus or other run.sh scripts:**
+
+If you're using command-line endpoint specification (e.g., with `reg-c2j-api.py`), reference the `hostmount.json` file:
+
+```bash
+# In your run.sh
+endpoint_opt+=" --endpoint remotehosts,user:root,host:$host,profiler:1,userenv:fedora-latest,tool-opt-in-tags:[power-monitoring],host-mounts:/path/to/hostmount.json"
+```
+
+The `host-mounts` parameter should point to the `hostmount.json` file path.
+
+#### Using Command-line Parameters (Backward Compatible)
+
+```json
+{
+  "tool-params": [
+    {
+      "tool": "power",
+      "deployment": "opt-in",
+      "opt-tag": "power-monitoring",
+      "params": [
+        {
+          "arg": "interval",
+          "val": "2"
+        },
+        {
+          "arg": "username",
+          "val": "admin"
+        },
+        {
+          "arg": "password",
+          "val": "your-password"
+        },
+        {
+          "arg": "endpoints",
+          "val": "192.168.1.10,192.168.1.11"
+        },
+        {
+          "arg": "plugin",
+          "val": "bf3-sensor"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Rickshaw Configuration Example
+
+Full configuration with opt-in deployment:
 
 ```json
 {
@@ -54,11 +200,11 @@ Each BMC endpoint must be assigned to exactly ONE tool-power instance. Multiple 
         },
         {
           "arg": "username",
-          "val": "admin"
+          "val": ""
         },
         {
           "arg": "password",
-          "val": "your-password"
+          "val": ""
         },
         {
           "arg": "endpoints",
@@ -262,21 +408,13 @@ curl -k -u root:'<password>' -X GET \
 
 ## Security Considerations
 
-**Current**: Credentials passed via command-line arguments (visible in process list)
+**Recommended**: Use `.netrc` file for credential storage to prevent passwords from being visible in process lists.
 
-**Planned**: Use `.netrc` file for credential storage:
-```bash
-# ~/.netrc (chmod 600)
-machine 192.168.1.10
-login admin
-password secret123
-```
+**Supported methods**:
+1. **`.netrc` file (secure)** - Credentials stored in `~/.netrc` (chmod 600), not visible in process list
+2. **Command-line parameters (legacy)** - Credentials visible in process list, backward compatible
 
-## TODO
-
-1. **Security improvements**
-   - Implement `.netrc` credential storage
-   - Remove password from command-line args
+See [Credential Management](#credential-management) section for configuration details.
 
 ## Testing
 
@@ -311,11 +449,23 @@ Integration test for the rickshaw wrapper script.
 - Validates command-line argument handling (--interval, --username, --password, --endpoints, --plugin)
 - Tests background process spawning
 - Verifies proper handoff to power-collect
-- Tests power-stop and output compression
+- Tests power-stop
 
 ```bash
 cd unit-test
 ./test-03-power-start.sh
+```
+
+### test-04-netrc.sh
+Tests secure credential storage using .netrc file.
+- Validates .netrc authentication works correctly
+- Confirms empty username/password parameters trigger .netrc usage
+- Verifies no passwords exposed in process lists
+- Demonstrates recommended security practice
+
+```bash
+cd unit-test
+./test-04-netrc.sh
 ```
 
 ### local_test
