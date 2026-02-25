@@ -133,7 +133,9 @@ endpoint_opt+=" --endpoint remotehosts,user:root,host:$host,profiler:1,userenv:f
 
 The `host-mounts` parameter should point to the `hostmount.json` file path.
 
-#### Using Command-line Parameters (Backward Compatible)
+#### Using Command-line Parameters (For Secure Environments Only)
+
+**Warning:** This method exposes credentials in run-file.json and logs. Only use in secure/isolated environments where credential exposure is not a concern.
 
 ```json
 {
@@ -341,7 +343,7 @@ The profiler node has network access to the BMC management network, while cluste
 
 The implementation is based on NVIDIA's official BlueField BMC documentation:
 
-- **Primary Reference**: [BMC Sensor Data - NVIDIA BlueField BMC v23.10](https://docs.nvidia.com/networking/display/bluefieldbmcv2310/bmc+sensor+data)
+- **Primary Reference**: [BMC Sensor Data - NVIDIA BlueField BMC v25.10](https://docs.nvidia.com/networking/display/bluefieldbmcv2510/bmc-sensor-data)
 - **BlueField Management**: https://docs.nvidia.com/networking/display/bluefieldbmcv2501/bluefield+management
 - **BMC Software Overview**: https://docs.nvidia.com/networking/display/bluefieldbmcv2404/bluefield+bmc+software+overview
 
@@ -408,11 +410,11 @@ curl -k -u root:'<password>' -X GET \
 
 ## Security Considerations
 
-**Recommended**: Use `.netrc` file for credential storage to prevent passwords from being visible in process lists.
+**Recommended**: Use `.netrc` file for credential storage to prevent passwords from being exposed in configuration files and logs.
 
 **Supported methods**:
-1. **`.netrc` file (secure)** - Credentials stored in `~/.netrc` (chmod 600), not visible in process list
-2. **Command-line parameters (legacy)** - Credentials visible in process list, backward compatible
+1. **`.netrc` file (secure)** - Credentials stored in `~/.netrc` (chmod 600), not exposed in run-file.json or logs
+2. **Command-line parameters (insecure)** - Credentials exposed in run-file.json and logs, only for secure/isolated environments
 
 See [Credential Management](#credential-management) section for configuration details.
 
