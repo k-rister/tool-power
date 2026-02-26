@@ -1,0 +1,39 @@
+{
+    "rickshaw-tool": {
+        "schema": {
+            "version": "2020.03.18"
+        }
+    },
+    "tool": "power",
+    "controller": {
+        "post-script": "%tool-dir%power-post-process"
+    },
+    "collector": {
+        "files-from-controller": [
+            {
+                "src": "%tool-dir%/power-start",
+                "dest": "/usr/bin/"
+            },
+            {
+                "src": "%tool-dir%/power-collect",
+                "dest": "/usr/bin/"
+            },
+            {
+                "src": "%tool-dir%/power-stop",
+                "dest": "/usr/bin/"
+            },
+            {
+                "src": "%tool-dir%/plugins",
+                "dest": "/usr/bin/"
+            }
+        ],
+        "start": "power-start",
+        "stop": "power-stop",
+        "whitelist": [
+            {
+                "endpoint": "remotehosts",
+                "collector-types": ["profiler"]
+            }
+        ]
+    }
+}

@@ -1,0 +1,173 @@
+#!/bin/bash
+## -*- mode: bash; indent-tabs-mode: nil; perl-indent-level: 4 -*-
+## vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=bash
+
+# Usage: power-collect <interval> <username> <password> [--plugin <name>] <ip1> [ip2] [ip3] ...
+# Collects power telemetry from Redfish-enabled devices using plugins
+# Each IP address is a BMC endpoint that provides Redfish API access
+
+# Default plugin
+plugin="generic-redfish"
+
+# Parse arguments
+interval=$1; shift
+username=$1; shift
+password=$1; shift
+
+# Check for --plugin option
+if [ "$1" == "--plugin" ]; then
+    shift
+    plugin=$1
+    shift
+fi
+
+# Remaining args are IPs
+ips=("$@")
+
+re='^[1-9][0-9]*$'
+
+# Parameter validation
+if [[ ! "$interval" =~ $re ]]; then
+    echo "ERROR($LINENO): Interval must be a positive integer, exiting"
+    exit 1
+fi
+
+# Credentials can be empty if using .netrc
+# If both are empty, curl will use .netrc
+# If both are provided, curl will use explicit credentials
+if [ -z "$username" ] && [ -n "$password" ]; then
+    echo "ERROR($LINENO): Password provided but username is empty, exiting"
+    exit 1
+fi
+
+if [ -n "$username" ] && [ -z "$password" ]; then
+    echo "ERROR($LINENO): Username provided but password is empty, exiting"
+    exit 1
+fi
+
+# Determine credential source
+if [ -z "$username" ] && [ -z "$password" ]; then
+    echo "Credential source: .netrc file"
+    use_netrc=true
+else
+    echo "Credential source: command-line parameters"
+    use_netrc=false
+fi
+
+if [ ${#ips[@]} -eq 0 ]; then
+    echo "ERROR($LINENO): At least one IP address required, exiting"
+    exit 1
+fi
+
+echo "Collecting power telemetry from ${#ips[@]} device(s) every ${interval}s"
+echo "Plugin: $plugin"
+echo "Endpoints: ${ips[@]}"
+
+# Prerequisites check
+declare -A required_cmds
+required_cmds["curl"]="HTTPS REST API calls"
+required_cmds["jq"]="JSON parsing"
+
+for cmd in "${!required_cmds[@]}"; do
+    if ! command -v $cmd &> /dev/null; then
+        echo "ERROR($LINENO): Required command '$cmd' not found (needed for ${required_cmds[$cmd]})"
+        exit 1
+    fi
+done
+
+echo "Prerequisites check passed"
+
+# Load plugin
+plugin_dir="$(dirname "$0")/plugins"
+plugin_file="$plugin_dir/${plugin}.sh"
+
+if [ ! -f "$plugin_file" ]; then
+    echo "ERROR($LINENO): Plugin '$plugin' not found at $plugin_file"
+    echo "Available plugins:"
+    if [ -d "$plugin_dir" ]; then
+        ls -1 "$plugin_dir"/*.sh 2>/dev/null | sed 's|.*/||; s|\.sh$||' | sed 's/^/  - /'
+    fi
+    exit 1
+fi
+
+echo "Loading plugin: $plugin_file"
+source "$plugin_file"
+
+if ! type plugin_validate_endpoint &>/dev/null; then
+    echo "ERROR($LINENO): Plugin '$plugin' does not implement plugin_validate_endpoint function"
+    exit 1
+fi
+
+if ! type plugin_collect_endpoint &>/dev/null; then
+    echo "ERROR($LINENO): Plugin '$plugin' does not implement plugin_collect_endpoint function"
+    exit 1
+fi
+
+echo "Plugin loaded: $plugin_name - $plugin_description"
+
+# Helper function to build curl auth flags
+# Returns either "--netrc" (use .netrc) or "-u user:pass" (explicit credentials)
+get_curl_auth_flags() {
+    if [ "$use_netrc" = true ]; then
+        echo "--netrc"
+    else
+        echo "-u $username:$password"
+    fi
+}
+
+# Export for use in background jobs
+export use_netrc
+export username
+export password
+export -f get_curl_auth_flags
+
+# Redfish endpoint validation (fail-fast)
+declare -A device_chassis_map
+
+echo ""
+echo "Validating Redfish endpoints..."
+
+for ip in "${ips[@]}"; do
+    echo "Validating $ip..."
+
+    # Use plugin to validate and get chassis ID
+    chassis_id=$(plugin_validate_endpoint "$ip")
+    if [ $? -ne 0 ]; then
+        echo "ERROR($LINENO): Endpoint validation failed for $ip"
+        exit 1
+    fi
+
+    device_chassis_map["$ip"]="$chassis_id"
+    echo "  Device ID: $chassis_id"
+    echo "  ✓ Validated successfully"
+done
+
+echo ""
+echo "All endpoints validated successfully!"
+echo ""
+
+# Export plugin function for background jobs (like original collect_endpoint)
+export -f plugin_collect_endpoint
+
+# Start collection threads
+declare -a pids
+
+echo "Starting collection threads..."
+for ip in "${ips[@]}"; do
+    chassis_id="${device_chassis_map[$ip]}"
+    echo "Starting collector for $ip (device: $chassis_id)"
+    plugin_collect_endpoint "$ip" "$chassis_id" "$interval" &
+    pids+=($!)
+done
+
+echo ""
+echo "Collection started! PIDs: ${pids[@]}"
+echo "Output files: power-<ip>.txt"
+echo "Press Ctrl+C to stop collection"
+echo ""
+
+# Save collector PIDs for power-stop to kill before compression
+echo "${pids[@]}" > power-collect-worker-pids.txt
+
+# Wait for all background processes
+wait

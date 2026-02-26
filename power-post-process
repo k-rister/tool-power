@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+# -*- mode: python; indent-tabs-mode: nil; python-indent-level: 4 -*-
+# vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
+
+import sys
+import os
+import csv
+import glob
+from pathlib import Path
+
+TOOLBOX_HOME = os.environ.get('TOOLBOX_HOME')
+if TOOLBOX_HOME is None:
+    print("This script requires libraries that are provided by the toolbox project.")
+    print("Toolbox can be acquired from https://github.com/perftool-incubator/toolbox and")
+    print("then use 'export TOOLBOX_HOME=/path/to/toolbox' so that it can be located.")
+    exit(1)
+else:
+    p = Path(TOOLBOX_HOME) / 'python'
+    if not p.exists() or not p.is_dir():
+        print("ERROR: <TOOLBOX_HOME>/python ('%s') does not exist!" % (p))
+        exit(2)
+    sys.path.append(str(p))
+from toolbox.metrics import log_sample
+from toolbox.metrics import finish_samples
+
+
+def process_generic_redfish_csv(filename: str, file_id: str):
+    """
+    Process generic-redfish CSV format.
+
+    CSV Format (6 fields):
+    timestamp,date,endpoint,power_consumed_watts,power_capacity_watts,power_limit_watts
+    1708534821.234567,2024-02-21 15:20:21,192.168.1.10,150.5,200.0,180.0
+    """
+    print(f'power-post-process: processing generic-redfish CSV: {filename}')
+
+    with open(filename, 'r') as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            # Convert timestamp to milliseconds
+            timestamp_ms = int(float(row['timestamp']) * 1000)
+            endpoint = row['endpoint']
+
+            # Log power consumed
+            if row['power_consumed_watts'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'consumed'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_consumed_watts'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log power capacity
+            if row['power_capacity_watts'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'capacity'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_capacity_watts'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log power limit
+            if row['power_limit_watts'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'limit'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_limit_watts'])}
+                log_sample(file_id, desc, names, sample)
+
+
+def process_bf3_sensor_csv(filename: str, file_id: str):
+    """
+    Process bf3-sensor CSV format.
+
+    CSV Format (9 fields):
+    timestamp,date,endpoint,power_envelope,power_envelope_status,soc_power,soc_power_status,power_envelope_deviation,power_envelope_deviation_status
+    1708534821.234567,2024-02-21 15:20:21,192.168.1.10,45.2,OK,42.8,OK,2.4,OK
+    """
+    print(f'power-post-process: processing bf3-sensor CSV: {filename}')
+
+    with open(filename, 'r') as file:
+        reader = csv.DictReader(file)
+
+        for row in reader:
+            # Convert timestamp to milliseconds
+            timestamp_ms = int(float(row['timestamp']) * 1000)
+            endpoint = row['endpoint']
+
+            # Log power envelope
+            if row['power_envelope'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'power_envelope', 'metric': 'envelope'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_envelope'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log SoC power
+            if row['soc_power'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'soc_power', 'metric': 'soc'}
+                sample = {'end': timestamp_ms, 'value': float(row['soc_power'])}
+                log_sample(file_id, desc, names, sample)
+
+            # Log power envelope deviation
+            if row['power_envelope_deviation'] != 'N/A':
+                desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'power'}
+                names = {'endpoint': endpoint, 'sensor': 'power_envelope_deviation', 'metric': 'envelope-deviation'}
+                sample = {'end': timestamp_ms, 'value': float(row['power_envelope_deviation'])}
+                log_sample(file_id, desc, names, sample)
+
+
+def detect_csv_format(filename: str) -> str:
+    """
+    Detect which CSV format the file uses by examining the header.
+
+    Returns:
+        'generic-redfish' or 'bf3-sensor' or 'unknown'
+    """
+    with open(filename, 'r') as file:
+        header = file.readline().strip()
+
+        if 'power_consumed_watts' in header:
+            return 'generic-redfish'
+        elif 'power_envelope' in header:
+            return 'bf3-sensor'
+        else:
+            return 'unknown'
+
+
+def process_power_file(filename: str, file_id: str):
+    """Process a single power CSV file"""
+    csv_format = detect_csv_format(filename)
+
+    if csv_format == 'generic-redfish':
+        process_generic_redfish_csv(filename, file_id)
+    elif csv_format == 'bf3-sensor':
+        process_bf3_sensor_csv(filename, file_id)
+    else:
+        print(f"WARNING: Unknown CSV format in {filename}, skipping")
+
+
+def process_all_power_files():
+    """Process all power files and write to single metric file"""
+    print("power-post-process: processing all power files")
+    file_id = 'power-telemetry'
+
+    # Look for CSV files (uncompressed)
+    power_files = glob.glob('power-*.csv')
+    if not power_files:
+        print("WARNING: No power files found (power-*.csv)")
+        return
+
+    print(f"Found {len(power_files)} power file(s)")
+
+    # Process all power files sequentially
+    for power_file in power_files:
+        process_power_file(power_file, file_id)
+
+    # Write all accumulated samples to output file once
+    finish_samples()
+    print("power-post-process: all power files complete")
+
+
+def main():
+    print("power-post-process")
+
+    # Find all power files (uncompressed CSV)
+    power_files = glob.glob('power-*.csv')
+
+    if not power_files:
+        print("WARNING: No power files found (power-*.csv)")
+        return 0
+
+    # Process all power files
+    process_all_power_files()
+
+    print("power-post-process complete")
+    return 0
+
+
+if __name__ == '__main__':
+    exit(main())

@@ -1,0 +1,25 @@
+{
+    "workshop": {
+        "schema": {
+            "version": "2020.03.02"
+        }
+    },
+    "userenvs": [
+        {
+            "name": "default",
+            "requirements": [ "packages" ]
+        }
+    ],
+    "requirements": [
+        {
+            "name": "packages",
+            "type": "distro",
+            "distro_info": {
+                "packages": [
+                    "curl",
+                    "jq"
+                ]
+            }
+        }
+    ]
+}

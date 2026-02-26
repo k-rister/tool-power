@@ -1,0 +1,115 @@
+#!/bin/bash
+exec >power-start-stderrout.txt
+exec 2>&1
+
+echo "args: $@"
+echo
+echo "pwd: `/bin/pwd`"
+echo
+echo "hostname: `hostname`"
+echo
+# defaults
+interval=3
+username=""
+password=""
+endpoints=""
+plugin="generic-redfish"
+power_collect="/usr/bin/power-collect"
+
+
+longopts="interval:,username:,password:,endpoints:,plugin:"
+opts=$(getopt -q -o "" --longoptions "$longopts" -n "getopt.sh" -- "$@");
+if [ $? -ne 0 ]; then
+    printf -- "\tUnrecognized option specified\n\n"
+    exit 1
+fi
+eval set -- "$opts";
+while true; do
+    case "$1" in
+        --interval)
+            shift;
+            interval=$1
+            echo "interval=$interval"
+            shift;
+            ;;
+        --username)
+            shift;
+            username=$1
+            echo "username=$username"
+            shift;
+            ;;
+        --password)
+            shift;
+            password=$1
+            echo "password=<redacted>"
+            shift;
+            ;;
+        --endpoints)
+            shift;
+            endpoints=$1
+            echo "endpoints=$endpoints"
+            shift;
+            ;;
+        --plugin)
+            shift;
+            plugin=$1
+            echo "plugin=$plugin"
+            shift;
+            ;;
+        --)
+            shift;
+            break
+            ;;
+        *)
+            echo "Invalid option: $1"
+            exit 1
+    esac
+done
+
+# Validate required parameters
+# Credentials are optional if using .netrc
+# If both username and password are empty, .netrc will be used
+# If only one is provided, that's an error
+if [ -z "$username" ] && [ -n "$password" ]; then
+    echo "ERROR: --password provided but --username is empty"
+    exit 1
+fi
+
+if [ -n "$username" ] && [ -z "$password" ]; then
+    echo "ERROR: --username provided but --password is empty"
+    exit 1
+fi
+
+if [ -z "$username" ] && [ -z "$password" ]; then
+    echo "Using .netrc for authentication"
+fi
+
+if [ -z "$endpoints" ]; then
+    echo "ERROR: --endpoints is required (comma-separated list of IP addresses)"
+    exit 1
+fi
+
+# Convert comma-separated endpoints to space-separated for power-collect
+endpoints_array=$(echo "$endpoints" | tr ',' ' ')
+
+# Check for power-collect in /usr/bin or current directory
+if [ ! -e $power_collect ]; then
+    if [ -e ./power-collect ]; then
+        power_collect="./power-collect"
+        echo "Using power-collect from current directory"
+    else
+        echo "$power_collect is not present, exiting"
+        exit 1
+    fi
+fi
+
+/bin/rm -f power-collect-pid.txt
+$power_collect $interval "$username" "$password" --plugin "$plugin" $endpoints_array &
+power_collect_pid=$!
+if [ -z "$power_collect_pid" ]; then
+    echo "Could not get power-collect PID, exiting"
+    exit 1
+fi
+echo "power-collect pid is $power_collect_pid"
+echo $power_collect_pid >power-collect-pid.txt
+

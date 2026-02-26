@@ -1,0 +1,50 @@
+#!/bin/bash
+exec >power-stop-stderrout.txt
+exec 2>&1
+
+echo "args: $@"
+echo
+echo "hostname: `hostname`"
+echo
+pidfile="power-collect-pid.txt"
+worker_pidfile="power-collect-worker-pids.txt"
+
+# First, kill the collector worker processes to stop any new data being written
+if [ -e $worker_pidfile ]; then
+    worker_pids=`cat $worker_pidfile`
+    if [ -n "$worker_pids" ]; then
+        echo "Stopping collector workers (PIDs: $worker_pids)..."
+        for pid in $worker_pids; do
+            if [ -e /proc/$pid ]; then
+                kill -s SIGTERM $pid
+            fi
+        done
+        # Wait a moment for collectors to finish current iteration and exit
+        sleep 2
+        echo "Collector workers stopped"
+    fi
+else
+    echo "Warning: $worker_pidfile not found, collectors may still be running"
+fi
+
+# Then kill the main power-collect process
+if [ -e $pidfile ]; then
+    pid=`cat $pidfile`
+    if [ -z "$pid" ]; then
+        echo "PID for power-collect ($pidfile) not found"
+        exit 1
+    fi
+    if [ -e /proc/$pid ]; then
+        kill -s SIGTERM $pid
+    else
+        echo "ERROR: process ID $pid was not found, so power-collect may have terminated abnormally"
+    fi
+else
+    echo "$pidfile not found"
+    echo "PWD: `/bin/pwd`"
+    echo "LS:"
+    /bin/ls -l
+    exit 1
+fi
+# Clean up PID files
+rm -f $pidfile $worker_pidfile
