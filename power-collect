@@ -130,10 +130,41 @@ echo "Validating Redfish endpoints..."
 for ip in "${ips[@]}"; do
     echo "Validating $ip..."
 
-    # Use plugin to validate and get chassis ID
-    chassis_id=$(plugin_validate_endpoint "$ip")
-    if [ $? -ne 0 ]; then
-        echo "ERROR($LINENO): Endpoint validation failed for $ip"
+    # Use plugin to validate with retries (BMC may be temporarily unresponsive)
+    max_retries=5
+    retry_delay=2
+    retry_count=0
+    chassis_id=""
+    validation_failed=true
+
+    while [ $retry_count -lt $max_retries ]; do
+        chassis_id=$(plugin_validate_endpoint "$ip" 2>&1)
+        validation_rc=$?
+        
+        # Check if we got a valid chassis ID (validation succeeded and no error in output)
+        if [ $validation_rc -eq 0 ] && [ -n "$chassis_id" ]; then
+            # Check chassis_id does not contain ERROR
+            if echo "$chassis_id" | grep -qi "error"; then
+                # Contains error, continue retry
+                :;
+            else
+                # Valid chassis ID
+                validation_failed=false
+                break
+            fi
+        fi
+        
+        retry_count=$((retry_count + 1))
+        if [ $retry_count -lt $max_retries ]; then
+            echo "  Retry $retry_count/$max_retries (BMC may be busy, waiting ${retry_delay}s)..." >&2
+            sleep $retry_delay
+            retry_delay=$((retry_delay * 2))  # Exponential backoff
+        fi
+    done
+
+    if [ "$validation_failed" = true ]; then
+        echo "ERROR($LINENO): Endpoint validation failed for $ip after $max_retries attempts" >&2
+        [ -n "$chassis_id" ] && echo "Last error: $chassis_id" >&2
         exit 1
     fi
 
