@@ -1,5 +1,5 @@
 #!/bin/bash
-## -*- mode: bash; indent-tabs-mode: nil; perl-indent-level: 4 -*-
+# -*- mode: sh; indent-tabs-mode: nil; sh-basic-offset: 4 -*-
 ## vim: autoindent tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=bash
 
 # Standalone Redfish connection and power collection test
