@@ -215,12 +215,11 @@ if __name__ == '__main__':
     server_address = ('', PORT)
     httpd = HTTPServer(server_address, RedfishHandler)
 
-    # Create self-signed SSL context
-    httpd.socket = ssl.wrap_socket(httpd.socket,
-                                    server_side=True,
-                                    certfile='/tmp/mock-cert.pem',
-                                    keyfile='/tmp/mock-key.pem',
-                                    ssl_version=ssl.PROTOCOL_TLS)
+    # Create SSL context
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certfile='/tmp/mock-cert.pem',
+                            keyfile='/tmp/mock-key.pem')
+    httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
 
     print(f"Mock Redfish server '{SERVER_NAME}' running on port {PORT}")
     try:
