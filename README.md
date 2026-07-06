@@ -16,7 +16,7 @@ Collects power consumption and thermal sensor data from BF-3 BMC endpoints via R
 - ✅ Timeout handling (5s connect, 10s max)
 - ✅ Profiler-only deployment via rickshaw
 - ✅ Opt-in/opt-out deployment modes
-- ✅ Output compression with xz
+- ✅ Post-processing for CDM metric indexing
 - ✅ Mock server testing framework
 
 ## Usage
@@ -245,7 +245,7 @@ Name | Description
 power-collect | Multi-threaded Redfish telemetry collector. Validates endpoints, then spawns parallel collection threads for power and thermal data.
 power-start | Rickshaw start wrapper. Parses command-line arguments (--interval, --username, --password, --endpoints, --plugin) and launches power-collect in background.
 power-stop | Stops power-collect process via saved PID and compresses output files with xz.
-power-post-process | (TODO) Post-processing script for generating metrics and preparing data for OpenSearch indexing.
+power-post-process | Post-processing script for generating CDM metrics from collected CSV data for OpenSearch indexing.
 
 ## Output
 
