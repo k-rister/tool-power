@@ -1,1 +1,3 @@
 unit-test/generated/
+__pycache__/
+*.pyc

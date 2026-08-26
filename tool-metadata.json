@@ -1,0 +1,25 @@
+{
+  "rickshaw-tool-metadata": {
+    "schema": {
+      "version": "2026.08.11"
+    }
+  },
+  "tool": "power",
+  "description": "Power consumption and thermal telemetry collector for Redfish-enabled BMC endpoints, with plugin support for generic Redfish and NVIDIA BlueField-3 DPU BMCs.",
+  "cdm_indexed": true,
+  "cdm_sources": [
+    {
+      "source": "redfish-bmc",
+      "types": [
+        "power"
+      ]
+    }
+  ],
+  "output_files": [
+    "power-<endpoint>.csv",
+    "power-collect-pid.txt",
+    "power-collect-worker-pids.txt",
+    "power-start-stderrout.txt",
+    "power-stop-stderrout.txt"
+  ]
+}
