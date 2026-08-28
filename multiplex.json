@@ -1,0 +1,30 @@
+{
+    "presets": {
+        "defaults" : [
+            { "arg": "interval", "vals": ["3"] },
+            { "arg": "plugin", "vals": ["generic-redfish"] }
+        ]
+    },
+    "validations": {
+        "positive_integer" : {
+            "description" : "a whole number greater than 0",
+            "args" : [ "interval" ],
+            "vals": "^[1-9][0-9]*$"
+        },
+        "plugin_name" : {
+            "description" : "supported Redfish telemetry plugin (generic-redfish, bf3-sensor)",
+            "args" : [ "plugin" ],
+            "vals": "^(generic-redfish|bf3-sensor)$"
+        },
+        "endpoint_list" : {
+            "description" : "comma-separated list of BMC IP addresses or hostnames",
+            "args" : [ "endpoints" ],
+            "vals": "^[A-Za-z0-9_.:@-]+(,[A-Za-z0-9_.:@-]+)*$"
+        },
+        "credential_string" : {
+            "description" : "BMC authentication username or password string",
+            "args" : [ "username", "password" ],
+            "vals": ".+"
+        }
+    }
+}
