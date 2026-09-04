@@ -245,7 +245,7 @@ Name | Description
 power-collect | Multi-threaded Redfish telemetry collector. Validates endpoints, then spawns parallel collection threads for power and thermal data.
 power-start | Rickshaw start wrapper. Parses command-line arguments (--interval, --username, --password, --endpoints, --plugin) and launches power-collect in background.
 power-stop | Stops power-collect process via saved PID and compresses output files with xz.
-power-post-process | Post-processing script for generating CDM metrics from collected CSV data for OpenSearch indexing.
+power-post-process.py | Post-processing script for generating CDM metrics from collected CSV data for OpenSearch indexing.
 
 ## Output
 
