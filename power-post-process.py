@@ -20,11 +20,10 @@ else:
         print("ERROR: <TOOLBOX_HOME>/python ('%s') does not exist!" % (p))
         exit(2)
     sys.path.append(str(p))
-from toolbox.metrics import log_sample
-from toolbox.metrics import finish_samples
+from toolbox.cdm_metrics import CDMMetrics
 
 
-def process_generic_redfish_csv(filename: str, file_id: str):
+def process_generic_redfish_csv(metrics, filename: str, file_id: str):
     """
     Process generic-redfish CSV format.
 
@@ -47,24 +46,24 @@ def process_generic_redfish_csv(filename: str, file_id: str):
                 desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'count'}
                 names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'consumed'}
                 sample = {'end': timestamp_ms, 'value': float(row['power_consumed_watts'])}
-                log_sample(file_id, desc, names, sample)
+                metrics.log_sample(file_id, desc, names, sample)
 
             # Log power capacity
             if row['power_capacity_watts'] != 'N/A':
                 desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'count'}
                 names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'capacity'}
                 sample = {'end': timestamp_ms, 'value': float(row['power_capacity_watts'])}
-                log_sample(file_id, desc, names, sample)
+                metrics.log_sample(file_id, desc, names, sample)
 
             # Log power limit
             if row['power_limit_watts'] != 'N/A':
                 desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'count'}
                 names = {'endpoint': endpoint, 'sensor': 'System Power Control', 'metric': 'limit'}
                 sample = {'end': timestamp_ms, 'value': float(row['power_limit_watts'])}
-                log_sample(file_id, desc, names, sample)
+                metrics.log_sample(file_id, desc, names, sample)
 
 
-def process_bf3_sensor_csv(filename: str, file_id: str):
+def process_bf3_sensor_csv(metrics, filename: str, file_id: str):
     """
     Process bf3-sensor CSV format.
 
@@ -87,21 +86,21 @@ def process_bf3_sensor_csv(filename: str, file_id: str):
                 desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'count'}
                 names = {'endpoint': endpoint, 'sensor': 'power_envelope', 'metric': 'envelope'}
                 sample = {'end': timestamp_ms, 'value': float(row['power_envelope'])}
-                log_sample(file_id, desc, names, sample)
+                metrics.log_sample(file_id, desc, names, sample)
 
             # Log SoC power
             if row['soc_power'] != 'N/A':
                 desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'count'}
                 names = {'endpoint': endpoint, 'sensor': 'soc_power', 'metric': 'soc'}
                 sample = {'end': timestamp_ms, 'value': float(row['soc_power'])}
-                log_sample(file_id, desc, names, sample)
+                metrics.log_sample(file_id, desc, names, sample)
 
             # Log power envelope deviation
             if row['power_envelope_deviation'] != 'N/A':
                 desc = {'source': 'redfish-bmc', 'type': 'power', 'class': 'count'}
                 names = {'endpoint': endpoint, 'sensor': 'power_envelope_deviation', 'metric': 'envelope-deviation'}
                 sample = {'end': timestamp_ms, 'value': float(row['power_envelope_deviation'])}
-                log_sample(file_id, desc, names, sample)
+                metrics.log_sample(file_id, desc, names, sample)
 
 
 def detect_csv_format(filename: str) -> str:
@@ -122,14 +121,14 @@ def detect_csv_format(filename: str) -> str:
             return 'unknown'
 
 
-def process_power_file(filename: str, file_id: str):
+def process_power_file(metrics, filename: str, file_id: str):
     """Process a single power CSV file"""
     csv_format = detect_csv_format(filename)
 
     if csv_format == 'generic-redfish':
-        process_generic_redfish_csv(filename, file_id)
+        process_generic_redfish_csv(metrics, filename, file_id)
     elif csv_format == 'bf3-sensor':
-        process_bf3_sensor_csv(filename, file_id)
+        process_bf3_sensor_csv(metrics, filename, file_id)
     else:
         print(f"WARNING: Unknown CSV format in {filename}, skipping")
 
@@ -138,6 +137,7 @@ def process_all_power_files():
     """Process all power files and write to single metric file"""
     print("power-post-process: processing all power files")
     file_id = 'power-telemetry'
+    metrics = CDMMetrics()
 
     # Look for CSV files (uncompressed)
     power_files = glob.glob('power-*.csv')
@@ -149,10 +149,10 @@ def process_all_power_files():
 
     # Process all power files sequentially
     for power_file in power_files:
-        process_power_file(power_file, file_id)
+        process_power_file(metrics, power_file, file_id)
 
     # Write all accumulated samples to output file once
-    finish_samples()
+    metrics.finish_samples()
     print("power-post-process: all power files complete")
 
 
